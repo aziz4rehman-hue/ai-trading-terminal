@@ -2,6 +2,8 @@
 
 Paper trading desk in the terminal. Quotes, buys, sells, and a short analyst brief. Nothing is routed to a broker.
 
+**[See the live demo](https://aziz4rehman-hue.github.io/ai-trading-terminal/)**
+
 **Not financial advice. No live orders.**
 
 ```bash

@@ -1,0 +1,141 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ai-trading-terminal demo</title>
+<style>
+  :root { color-scheme: dark; --bg:#0c0f14; --card:#151b24; --line:#2a3444; --text:#e7edf5; --muted:#93a0b5; --accent:#3dd68c; --bad:#ff6b6b; }
+  * { box-sizing: border-box; }
+  body { margin:0; font:16px/1.45 ui-sans-serif, system-ui, sans-serif; background:var(--bg); color:var(--text); }
+  header, main { width:min(720px, calc(100% - 32px)); margin:0 auto; }
+  header { padding:28px 0 8px; }
+  .kicker { color:var(--accent); letter-spacing:.14em; text-transform:uppercase; font-size:12px; margin:0 0 8px; }
+  h1 { font-size:28px; margin:0 0 8px; }
+  p { color:var(--muted); margin:0; }
+  a { color:var(--accent); }
+  .bar { display:flex; gap:12px; margin:18px 0; }
+  .stat { flex:1; background:var(--card); border:1px solid var(--line); border-radius:14px; padding:12px 14px; }
+  .stat b { display:block; font-size:20px; color:var(--text); }
+  .row { display:grid; grid-template-columns:1fr auto auto; gap:8px; align-items:center; background:var(--card); border:1px solid var(--line); border-radius:14px; padding:12px; margin:8px 0; }
+  .sym { font-weight:700; }
+  .px { color:var(--muted); font-variant-numeric:tabular-nums; }
+  button { background:#1d2633; color:var(--text); border:1px solid var(--line); border-radius:10px; padding:10px 12px; font:inherit; }
+  button.buy { border-color:#246b48; color:var(--accent); }
+  button.sell { border-color:#6b3030; color:var(--bad); }
+  button.wide { width:100%; margin-top:8px; background:var(--accent); color:#062214; font-weight:700; border:0; }
+  .panel { background:var(--card); border:1px solid var(--line); border-radius:14px; padding:14px; margin:14px 0 28px; white-space:pre-wrap; font-family:ui-monospace, SFMono-Regular, Menlo, monospace; font-size:13px; }
+  .warn { color:#f5c16c; }
+</style>
+</head>
+<body>
+<header>
+  <p class="kicker">Live demo</p>
+  <h1>ai-trading-terminal</h1>
+  <p>Paper desk. Fills at the last quote. Not financial advice, and no live order is sent. <a href="https://github.com/aziz4rehman-hue/ai-trading-terminal">Source</a></p>
+</header>
+<main>
+  <div class="bar">
+    <div class="stat">Cash<b id="cash">100000.00</b></div>
+    <div class="stat">Equity<b id="equity">100000.00</b></div>
+  </div>
+  <div id="book"></div>
+  <button class="wide" id="tick" type="button">Tick the tape</button>
+  <div class="panel" id="brief"></div>
+</main>
+<script>
+const start = { AAPL: 190, MSFT: 420, NVDA: 140, BTC: 67000 };
+let prices = { ...start };
+let hist = Object.fromEntries(Object.keys(start).map(s => [s, [start[s]]]));
+let cash = 100000;
+const pos = {};
+let rngState = 7;
+function rng() {
+  rngState |= 0;
+  rngState = rngState + 0x6D2B79F5 | 0;
+  let t = Math.imul(rngState ^ rngState >>> 15, 1 | rngState);
+  t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t;
+  return ((t ^ t >>> 14) >>> 0) / 4294967296;
+}
+function gauss() {
+  let u = rng() || 1e-9, v = rng() || 1e-9;
+  return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v);
+}
+function money(n) { return n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
+function equity() {
+  return Object.entries(pos).reduce((sum, [s, p]) => sum + p.qty * prices[s], cash);
+}
+function trend(s) {
+  const h = hist[s].slice(-5);
+  if (h.length < 2 || h.at(-1) === h[0]) return "flat";
+  return h.at(-1) > h[0] ? "up" : "down";
+}
+function render() {
+  document.getElementById("cash").textContent = money(cash);
+  document.getElementById("equity").textContent = money(equity());
+  const book = document.getElementById("book");
+  book.replaceChildren();
+  for (const symbol of Object.keys(prices)) {
+    const row = document.createElement("div");
+    row.className = "row";
+    const left = document.createElement("div");
+    const held = pos[symbol];
+    left.innerHTML = `<div class="sym">${symbol}</div><div class="px">${money(prices[symbol])}${held ? ` · ${held.qty} @ ${money(held.avg)}` : ""}</div>`;
+    const buy = document.createElement("button");
+    buy.className = "buy";
+    buy.type = "button";
+    buy.textContent = "Buy 1";
+    buy.onclick = () => trade(symbol, 1);
+    const sell = document.createElement("button");
+    sell.className = "sell";
+    sell.type = "button";
+    sell.textContent = "Sell 1";
+    sell.onclick = () => trade(symbol, -1);
+    row.append(left, buy, sell);
+    book.append(row);
+  }
+  const lines = ["paper brief — not financial advice, not a live order"];
+  const names = Object.keys(pos).sort();
+  if (!names.length) lines.push("flat book");
+  for (const s of names) {
+    const pnl = (prices[s] - pos[s].avg) * pos[s].qty;
+    lines.push(`${s} qty ${pos[s].qty} avg ${money(pos[s].avg)} last ${money(prices[s])} pnl ${pnl >= 0 ? "+" : ""}${money(pnl)} trend ${trend(s)}`);
+    if (prices[s] < pos[s].avg * 0.95) lines.push(`alert ${s} is more than 5% under your average`);
+  }
+  lines.push(`cash ${money(cash)} equity ${money(equity())}`);
+  const brief = document.getElementById("brief");
+  brief.textContent = lines.join("\n");
+  brief.querySelectorAll && brief.classList.toggle("warn", lines.some(l => l.startsWith("alert")));
+}
+function trade(symbol, side) {
+  const price = prices[symbol];
+  if (side > 0) {
+    if (price > cash) return;
+    const held = pos[symbol];
+    if (!held) pos[symbol] = { qty: 1, avg: price };
+    else {
+      const qty = held.qty + 1;
+      held.avg = (held.avg * held.qty + price) / qty;
+      held.qty = qty;
+    }
+    cash -= price;
+  } else {
+    const held = pos[symbol];
+    if (!held || held.qty < 1) return;
+    held.qty -= 1;
+    cash += price;
+    if (held.qty === 0) delete pos[symbol];
+  }
+  render();
+}
+document.getElementById("tick").onclick = () => {
+  for (const s of Object.keys(prices)) {
+    prices[s] = Math.round(Math.max(1, prices[s] * (1 + gauss() * 0.008)) * 100) / 100;
+    hist[s].push(prices[s]);
+  }
+  render();
+};
+render();
+</script>
+</body>
+</html>
